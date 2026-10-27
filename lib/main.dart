@@ -1,0 +1,264 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
+
+void main() {
+  runApp(const AgroVisionApp());
+}
+
+class AgroVisionApp extends StatelessWidget {
+  const AgroVisionApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'AgroVision Pro',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2E7D32)),
+        useMaterial3: true,
+        fontFamily: 'Roboto',
+      ),
+      home: const ScannerHomePage(),
+    );
+  }
+}
+
+class ScannerHomePage extends StatefulWidget {
+  const ScannerHomePage({super.key});
+
+  @override
+  State<ScannerHomePage> createState() => _ScannerHomePageState();
+}
+
+class _ScannerHomePageState extends State<ScannerHomePage> {
+  bool _isLoading = false;
+  Map<String, dynamic>? _diagnosisData;
+  
+  String _selectedCrop = 'Unknown';
+  String _selectedLang = 'en'; // NEW: Language State
+  final List<String> _cropOptions = ['Unknown', 'Tomato', 'Potato'];
+
+  // Basic UI Translations Dictionary
+  final Map<String, Map<String, String>> _uiText = {
+    'en': {'scan': 'Scan a Crop', 'cam': 'Camera', 'gal': 'Gallery', 'dash': 'Diagnosis Dashboard', 'plan': 'Action Plan'},
+    'hi': {'scan': 'फसल स्कैन करें', 'cam': 'कैमरा', 'gal': 'गैलरी', 'dash': 'निदान डैशबोर्ड', 'plan': 'कार्य योजना'},
+  };
+
+  Future<void> _pickAndUploadImage(ImageSource source) async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: source);
+
+    if (image != null) {
+      setState(() {
+        _isLoading = true;
+        _diagnosisData = null;
+      });
+
+      try {
+        final bytes = await image.readAsBytes();
+        
+        // NEW: Passing both crop_type AND lang to FastAPI
+        // Update this IP if your Hotspot IP changed today!
+        var uri = Uri.parse('http://172.30.84.31:8000/diagnose?crop_type=$_selectedCrop&lang=$_selectedLang');
+        var request = http.MultipartRequest('POST', uri);
+        request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: image.name));
+
+        var streamedResponse = await request.send();
+        var response = await http.Response.fromStream(streamedResponse);
+
+        if (response.statusCode == 200) {
+          setState(() {
+            _diagnosisData = jsonDecode(response.body);
+          });
+        } else {
+          _showErrorSnackBar('Server Error: ${response.statusCode}');
+        }
+      } catch (e) {
+         _showErrorSnackBar('Connection Error: Is the FastAPI server running?');
+      } finally {
+        setState(() { _isLoading = false; });
+      }
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.redAccent));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = _uiText[_selectedLang]!; // Active translations
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7F5),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 200.0,
+            floating: false,
+            pinned: true,
+            // NEW: Language Toggle Button in the top right
+            actions: [
+              Padding(
+                padding: const EdgeInsets.only(right: 15, top: 10),
+                child: ToggleButtons(
+                  isSelected: [_selectedLang == 'en', _selectedLang == 'hi'],
+                  onPressed: (index) {
+                    setState(() {
+                      _selectedLang = index == 0 ? 'en' : 'hi';
+                      _diagnosisData = null; // Clear previous results on language change
+                    });
+                  },
+                  color: Colors.white70,
+                  selectedColor: const Color(0xFF2E7D32),
+                  fillColor: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  constraints: const BoxConstraints(minHeight: 35, minWidth: 50),
+                  children: const [
+                    Text('EN', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('हिंदी', style: TextStyle(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              )
+            ],
+            flexibleSpace: FlexibleSpaceBar(
+              title: const Text('AgroVision Pro', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+              background: Container(
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Color(0xFF1B5E20), Color(0xFF4CAF50)],
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  ),
+                ),
+                child: const Center(child: Icon(Icons.energy_savings_leaf, size: 80, color: Colors.white38)),
+              ),
+            ),
+          ),
+          
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Card(
+                    elevation: 4,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        children: [
+                          Text(t['scan']!, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32))),
+                          const SizedBox(height: 15),
+                          DropdownButtonFormField<String>(
+                            value: _selectedCrop,
+                            decoration: InputDecoration(
+                              labelText: 'Target Crop',
+                              prefixIcon: const Icon(Icons.grass, color: Color(0xFF4CAF50)),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                              filled: true, fillColor: Colors.grey.shade50,
+                            ),
+                            items: _cropOptions.map((String crop) => DropdownMenuItem<String>(value: crop, child: Text(crop))).toList(),
+                            onChanged: (String? newValue) { setState(() { _selectedCrop = newValue!; }); },
+                          ),
+                          const SizedBox(height: 20),
+                          if (_isLoading)
+                            const Padding(padding: EdgeInsets.all(20.0), child: CircularProgressIndicator(color: Color(0xFF2E7D32)))
+                          else
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ElevatedButton.icon(
+                                    onPressed: () => _pickAndUploadImage(ImageSource.camera),
+                                    icon: const Icon(Icons.camera_alt, color: Colors.white),
+                                    label: Text(t['cam']!, style: const TextStyle(color: Colors.white, fontSize: 16)),
+                                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2E7D32), padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))),
+                                  ),
+                                ),
+                                const SizedBox(width: 15),
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => _pickAndUploadImage(ImageSource.gallery),
+                                    icon: const Icon(Icons.photo_library, color: Color(0xFF2E7D32)),
+                                    label: Text(t['gal']!, style: const TextStyle(color: Color(0xFF2E7D32), fontSize: 16)),
+                                    style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15), side: const BorderSide(color: Color(0xFF2E7D32), width: 2), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+                  
+                  if (_diagnosisData != null) ...[
+                    Text(t['dash']!, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
+                    const SizedBox(height: 15),
+                    Card(
+                      color: Colors.white, elevation: 3, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.all(20),
+                        leading: CircleAvatar(backgroundColor: Colors.red.shade100, radius: 30, child: const Icon(Icons.coronavirus, color: Colors.redAccent, size: 30)),
+                        title: Text(_diagnosisData!['diagnosis']['disease'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                        subtitle: Text('Confidence: ${_diagnosisData!['diagnosis']['confidence']}', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+                      ),
+                    ),
+                    const SizedBox(height: 15),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Card(
+                            elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(children: [const Icon(Icons.water_drop, color: Colors.blue), const SizedBox(height: 8), Text(_diagnosisData!['environmental_context']['average_humidity'], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))]),
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: Card(
+                            elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(children: [const Icon(Icons.thermostat, color: Colors.orange), const SizedBox(height: 8), Text(_diagnosisData!['environmental_context']['average_temperature'], style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold))]),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 15),
+                    Card(
+                      color: const Color(0xFFE8F5E9), elevation: 2, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.green.shade200)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(children: [const Icon(Icons.assignment, color: Color(0xFF2E7D32)), const SizedBox(width: 10), Text(t['plan']!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2E7D32)))]),
+                            const Divider(),
+                            ...(_diagnosisData!['farmer_instructions'] as List).map((instruction) => 
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [const Icon(Icons.play_arrow, size: 16, color: Color(0xFF2E7D32)), const SizedBox(width: 8), Expanded(child: Text(instruction.toString(), style: const TextStyle(fontSize: 15, height: 1.4)))],
+                                ),
+                              )
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
