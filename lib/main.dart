@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart'; // NEW: Imported URL Launcher
 
 void main() {
   runApp(const AgroVisionApp());
@@ -37,13 +38,17 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   Map<String, dynamic>? _diagnosisData;
   
   String _selectedCrop = 'Unknown';
-  String _selectedLang = 'en'; // NEW: Language State
+  String _selectedLang = 'en';
   final List<String> _cropOptions = ['Unknown', 'Tomato', 'Potato'];
 
-  // Basic UI Translations Dictionary
+  // NEW: State variables to hold the store link and price
+  String _buyLink = ''; 
+  String _buyPrice = '';
+
+  // Basic UI Translations Dictionary (Added 'treat' for the new card)
   final Map<String, Map<String, String>> _uiText = {
-    'en': {'scan': 'Scan a Crop', 'cam': 'Camera', 'gal': 'Gallery', 'dash': 'Diagnosis Dashboard', 'plan': 'Action Plan'},
-    'hi': {'scan': 'फसल स्कैन करें', 'cam': 'कैमरा', 'gal': 'गैलरी', 'dash': 'निदान डैशबोर्ड', 'plan': 'कार्य योजना'},
+    'en': {'scan': 'Scan a Crop', 'cam': 'Camera', 'gal': 'Gallery', 'dash': 'Diagnosis Dashboard', 'plan': 'Action Plan', 'treat': 'Treatment & Pesticides'},
+    'hi': {'scan': 'फसल स्कैन करें', 'cam': 'कैमरा', 'gal': 'गैलरी', 'dash': 'निदान डैशबोर्ड', 'plan': 'कार्य योजना', 'treat': 'उपचार और कीटनाशक'},
   };
 
   Future<void> _pickAndUploadImage(ImageSource source) async {
@@ -54,13 +59,13 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       setState(() {
         _isLoading = true;
         _diagnosisData = null;
+        _buyLink = '';
+        _buyPrice = '';
       });
 
       try {
         final bytes = await image.readAsBytes();
         
-        // NEW: Passing both crop_type AND lang to FastAPI
-        // Update this IP if your Hotspot IP changed today!
         var uri = Uri.parse('http://172.30.84.31:8000/diagnose?crop_type=$_selectedCrop&lang=$_selectedLang');
         var request = http.MultipartRequest('POST', uri);
         request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: image.name));
@@ -69,8 +74,15 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
         var response = await http.Response.fromStream(streamedResponse);
 
         if (response.statusCode == 200) {
+          final decodedData = jsonDecode(response.body);
           setState(() {
-            _diagnosisData = jsonDecode(response.body);
+            _diagnosisData = decodedData;
+            
+            // NEW: Extract the buy link and price if expert_treatment exists
+            if (decodedData.containsKey('expert_treatment')) {
+              _buyLink = decodedData['expert_treatment']['best_price_link'] ?? '';
+              _buyPrice = decodedData['expert_treatment']['est_price'] ?? '';
+            }
           });
         } else {
           _showErrorSnackBar('Server Error: ${response.statusCode}');
@@ -83,13 +95,23 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
     }
   }
 
+  // NEW: Function to open the web browser to buy pesticides
+  Future<void> _launchURL() async {
+    if (_buyLink.isNotEmpty) {
+      final Uri url = Uri.parse(_buyLink);
+      if (!await launchUrl(url)) {
+        _showErrorSnackBar('Could not launch $_buyLink');
+      }
+    }
+  }
+
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message), backgroundColor: Colors.redAccent));
   }
 
   @override
   Widget build(BuildContext context) {
-    final t = _uiText[_selectedLang]!; // Active translations
+    final t = _uiText[_selectedLang]!;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7F5),
@@ -99,7 +121,6 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
             expandedHeight: 200.0,
             floating: false,
             pinned: true,
-            // NEW: Language Toggle Button in the top right
             actions: [
               Padding(
                 padding: const EdgeInsets.only(right: 15, top: 10),
@@ -108,7 +129,8 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
                   onPressed: (index) {
                     setState(() {
                       _selectedLang = index == 0 ? 'en' : 'hi';
-                      _diagnosisData = null; // Clear previous results on language change
+                      _diagnosisData = null; 
+                      _buyLink = ''; 
                     });
                   },
                   color: Colors.white70,
@@ -252,6 +274,58 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
                         ),
                       ),
                     ),
+                    
+                    // --- NEW: EXPERT TREATMENT CARD ---
+                    if (_diagnosisData!.containsKey('expert_treatment') && _diagnosisData!['expert_treatment']['chemical_pesticide'] != "None needed.") ...[
+                      const SizedBox(height: 15),
+                      Card(
+                        color: const Color(0xFFFFF3E0),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15), side: BorderSide(color: Colors.orange.shade200)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(Icons.science, color: Colors.deepOrange),
+                                  const SizedBox(width: 10),
+                                  Text(t['treat']!, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.deepOrange)),
+                                ]
+                              ),
+                              const Divider(),
+                              Text("💡 ${_diagnosisData!['expert_treatment']['simple_advice']}", style: const TextStyle(fontSize: 15, height: 1.4)),
+                              const SizedBox(height: 10),
+                              Text("🧪 Chemical: ${_diagnosisData!['expert_treatment']['chemical_pesticide']} (${_diagnosisData!['expert_treatment']['dosage']})", style: const TextStyle(fontSize: 15, height: 1.4, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 10),
+                              Text("🌿 Organic: ${_diagnosisData!['expert_treatment']['organic_alternative']}", style: const TextStyle(fontSize: 15, height: 1.4)),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+
+                    // --- NEW: THE BUY PESTICIDE BUTTON (Smart check for "Varies") ---
+                    if (_buyLink.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      ElevatedButton.icon(
+                        onPressed: _launchURL,
+                        icon: const Icon(Icons.shopping_cart, color: Colors.white),
+                        label: Text(
+                          _buyPrice == 'Varies' || _buyPrice.isEmpty 
+                              ? 'Find Pesticides Online' 
+                              : 'Buy Pesticide Now - $_buyPrice',
+                          style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2E7D32),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 30),
                   ],
                 ],
               ),
