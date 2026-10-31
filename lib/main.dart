@@ -21,11 +21,30 @@ class AgroVisionApp extends StatelessWidget {
         useMaterial3: true, 
         fontFamily: 'Roboto', 
       ), 
-      home: const MainNavigationWrapper(), 
+      home: LayoutBuilder(
+        builder: (context, constraints) {
+          // If screen is wider than 600px (PC Browser)
+          if (constraints.maxWidth > 600) {
+            return Scaffold(
+              backgroundColor: Colors.grey.shade900,
+              body: Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: const SizedBox(
+                    width: 450,
+                    child: MainNavigationWrapper(),
+                  ),
+                ),
+              ),
+            );
+          }
+          // If screen is narrow (Mobile Phone)
+          return const MainNavigationWrapper();
+        },
+      ),
     ); 
   } 
 }
-
 // ========================================================
 // 1. MAIN NAVIGATION WRAPPER (3 TABS)
 // ========================================================
@@ -118,7 +137,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       try {
         final bytes = await image.readAsBytes();
         
-        var uri = Uri.parse('http://172.30.84.31:8000/diagnose?crop_type=$_selectedCrop&lang=$_selectedLang');
+        var uri = Uri.parse('http://127.0.0.1:8000/diagnose?crop_type=$_selectedCrop&lang=$_selectedLang');
         var request = http.MultipartRequest('POST', uri);
         request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: image.name));
 
@@ -412,7 +431,7 @@ class _MandiPricesScreenState extends State<MandiPricesScreen> {
 
   Future<void> _fetchPrices() async { 
     try { 
-      final response = await http.get(Uri.parse('http://172.30.84.31:8000/mandi_prices')).timeout(const Duration(seconds: 3));
+      final response = await http.get(Uri.parse('http://127.0.0.1:8000/mandi_prices')).timeout(const Duration(seconds: 3));
       if (response.statusCode == 200) {
         setState(() {
           _marketData = jsonDecode(response.body);
@@ -556,7 +575,7 @@ class _CommunityHubScreenState extends State<CommunityHubScreen> {
   final ImagePicker _picker = ImagePicker();
   List<KisanPost> posts = [];
   bool _isLoading = true;
-  final String _serverIp = 'http://172.30.84.31:8000'; 
+  final String _serverIp = 'http://127.0.0.1:8000'; 
   final Set<int> _expandedPosts = {};
 
   @override
