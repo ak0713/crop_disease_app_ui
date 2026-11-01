@@ -14,7 +14,7 @@ class AgroVisionApp extends StatelessWidget {
   @override 
   Widget build(BuildContext context) { 
     return MaterialApp( 
-      title: 'AgroVision Pro', 
+      title: 'AgroVision', 
       debugShowCheckedModeBanner: false, 
       theme: ThemeData( 
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2E7D32)), 
@@ -213,7 +213,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
               )
             ],
             flexibleSpace: FlexibleSpaceBar(
-              title: const Text('AgroVision Pro', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+              title: const Text('AgroVision', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
               background: Container(
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
